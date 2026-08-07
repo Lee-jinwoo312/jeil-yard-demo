@@ -1,5 +1,5 @@
-﻿"""
-JeilTechnos yard visualization for field, v1, and v2 results.
+"""
+JeilTechnos yard visualization for field, v1, v2, and v3 project-code-weight results.
 
 This version reuses the old hand-drawn yard diagram style:
 - A/B/C/D/E/F/G/H/I yards are drawn as fixed rectangles.
@@ -20,7 +20,7 @@ import plotly.express as px
 import streamlit as st
 
 SCRIPT_DIR = Path(__file__).resolve().parent
-PROGRAM_RUN_DIR = SCRIPT_DIR / "ProgramRun"
+PROGRAM_RUN_DIR = SCRIPT_DIR.parent / "ProgramRun"
 DAILY_PLACEMENT_FILE = "DailyPlacement.csv"
 YARD_CONFIG_FILE = "YardInputWithStack.csv"
 ASSIGN_RESULT_FILE = "AssignResult_jeil_newyard.csv"
@@ -30,8 +30,9 @@ FIELD_OBJECT_SUMMARY_FILE = "JeilFieldObjectSummary.csv"
 BASE_DATE_STR = "2026-01-01"
 FIELD_SOURCE_LABEL = "현업 (Jeil Technos)"
 
-# Both versions use the same 7,805-packing input and the same objective weights.
-# Only the algorithm version and its operational constraints differ.
+# All versions use the same 7,805-packing comparison input.
+V3_MIXING_WEIGHTS = [0, 5, 50, 100, 200, 500, 1000, 2000, 5000, 10000, 20000, 50000]
+
 ALGORITHM_RESULT_SETS = [
     (
         "v1",
@@ -49,6 +50,17 @@ ALGORITHM_RESULT_SETS = [
             "summary": "Summary_compare_v2.csv",
         },
     ),
+] + [
+    (
+        f"v3 (project code 가중치 {weight})",
+        {
+            "daily": f"DailyPlacement_mixW{weight}_LNS2000_7805.csv",
+            "assign": f"AssignResult_mixW{weight}_LNS2000_7805.csv",
+            "summary": f"Summary_mixW{weight}_LNS2000_7805.csv",
+            "mixing_weight": weight,
+        },
+    )
+    for weight in V3_MIXING_WEIGHTS
 ]
 
 YARD_DIAGRAM_WIDTH = 900
@@ -349,6 +361,9 @@ def load_objective_term_comparison(program_run_dir: str) -> pd.DataFrame:
             values_by_source["현업"] = dict(zip(field_raw["term"].astype(str), field_values))
 
     for result_label, files in ALGORITHM_RESULT_SETS:
+        if result_label.startswith("v3"):
+            continue
+
         summary_file = files.get("summary")
         if not summary_file:
             continue
@@ -400,6 +415,44 @@ def load_objective_term_comparison(program_run_dir: str) -> pd.DataFrame:
     rows.append(objective_row)
 
     return pd.DataFrame(rows)
+
+
+@st.cache_data(ttl=300)
+def load_v3_weight_comparison(program_run_dir: str) -> pd.DataFrame:
+    """Load the v3 project-code-weight experiment summary."""
+    path = Path(program_run_dir) / "MixingWeightExperimentSummary_LNS2000_7805.csv"
+    if not path.exists():
+        return pd.DataFrame()
+
+    comparison = pd.read_csv(path)
+    required_columns = {
+        "mixing_weight",
+        "relocation_sum",
+        "total_weighted_dist_sum",
+        "total_project_dist_sum",
+        "project_yard_num",
+        "total_assigned_package_num",
+        "project_mixing_penalty",
+        "mixed_yards",
+        "mixed_yard_days",
+        "max_project_codes_in_same_yard_day",
+        "used_yards",
+    }
+    if not required_columns.issubset(comparison.columns):
+        return pd.DataFrame()
+
+    numeric_columns = list(required_columns)
+    for column in numeric_columns:
+        comparison[column] = pd.to_numeric(comparison[column], errors="coerce")
+
+    comparison["common_obj_value"] = (
+        comparison["relocation_sum"] * 200.0
+        + comparison["total_weighted_dist_sum"]
+        + comparison["total_project_dist_sum"]
+        + comparison["project_yard_num"]
+    )
+
+    return comparison.sort_values("mixing_weight").reset_index(drop=True)
 
 
 @st.cache_data(ttl=300)
@@ -1575,7 +1628,57 @@ def render_objective_term_comparison(comparison: pd.DataFrame) -> None:
     )
     st.caption(
         "Raw term values use the same 7,805-packing comparison set. "
-        "The final row recalculates all three objective values with common weights 200, 1, 1, 1."
+        "The final row recalculates every objective value with common weights 200, 1, 1, 1."
+    )
+
+
+def render_v3_weight_comparison(comparison: pd.DataFrame) -> None:
+    if comparison.empty:
+        st.info("No v3 project-code-weight experiment summary is available.")
+        return
+
+    term_rows = [
+        ("재취급 대상 packing 수", "relocation_sum"),
+        ("지게차 이동거리", "total_weighted_dist_sum"),
+        ("동일 프로젝트 분산거리", "total_project_dist_sum"),
+        ("Project-yard 배정 건수", "project_yard_num"),
+        ("배정 packing 수", "total_assigned_package_num"),
+        ("공통 목적값 (weight: 200, 1, 1, 1)", "common_obj_value"),
+    ]
+
+    weight_columns = [
+        f"W{int(weight)}"
+        for weight in comparison["mixing_weight"].tolist()
+    ]
+    rows = []
+    for term_label, term_key in term_rows:
+        row = {"항목": term_label, "term": term_key}
+        for _, result in comparison.iterrows():
+            weight_column = f"W{int(result['mixing_weight'])}"
+            value = result[term_key]
+            if pd.isna(value):
+                row[weight_column] = "-"
+            elif float(value).is_integer():
+                row[weight_column] = f"{int(value):,}"
+            else:
+                row[weight_column] = f"{float(value):,.1f}"
+        rows.append(row)
+
+    display = pd.DataFrame(rows)
+
+    st.markdown(
+        '<p class="section-title">v3 Project Code Weight Comparison - 7,805 Packings</p>',
+        unsafe_allow_html=True,
+    )
+    st.dataframe(
+        display[["항목", "term"] + weight_columns],
+        use_container_width=True,
+        hide_index=True,
+    )
+    st.caption(
+        "All v3 results use 300 LNS iterations and common base weights 200, 1, 1, 1. "
+        "Columns W0 through W50000 change only the project code weight. "
+        "The final row excludes that penalty for a direct comparison."
     )
 
 
@@ -1627,7 +1730,10 @@ def main() -> None:
     st.set_page_config(page_title="JeilTechnos Yard Map", layout="wide")
     st.markdown(CSS, unsafe_allow_html=True)
     st.title("JeilTechnos Yard Map")
-    st.caption("Field, v1, and v2 yard assignments on the same MES-valid 7,805-packing input.")
+    st.caption(
+        "Field, v1, v2, and v3 project-code-weight yard assignments "
+        "on the same MES-valid 7,805-packing input."
+    )
 
     with st.sidebar:
         st.header("Input")
@@ -1658,7 +1764,7 @@ def main() -> None:
             else selected_source_label
         )
         selected_result_files = dict(available_result_sets)[selected_result_label]
-        selected_algorithm_label = selected_result_label.split(" ")[0]
+        selected_algorithm_label = selected_result_label
         if is_field_source:
             st.caption(
                 f"utilization={FIELD_UTILIZATION_FILE} / "
@@ -1676,6 +1782,7 @@ def main() -> None:
     field_df = load_field_utilization(program_run_dir)
     jeil_project_usage_df = load_jeil_project_yard_usage(program_run_dir)
     objective_term_comparison = load_objective_term_comparison(program_run_dir)
+    v3_weight_comparison = load_v3_weight_comparison(program_run_dir)
     if daily_df.empty or yards_df.empty:
         return
 
@@ -1744,6 +1851,7 @@ def main() -> None:
             render_field_utilization_map(yards_df, field_df, selected_yard)
             render_field_utilization_table(yards_df, field_df)
             render_objective_term_comparison(objective_term_comparison)
+            render_v3_weight_comparison(v3_weight_comparison)
         else:
             comparison = build_utilization_comparison(daily_df, yards_df, field_df)
             if field_df.empty:
@@ -1872,7 +1980,14 @@ def main() -> None:
             color_by = st.selectbox("Color by", ["project_code", "group_id"], index=0)
             show_overview_cards = st.checkbox("Show overview cards", value=True)
             show_empty_yards = st.checkbox("Show empty yards in overview", value=False)
-            max_yard_cards = st.slider("Max overview cards", min_value=8, max_value=100, value=32, step=4)
+            max_overview_yards = len(ordered_stack_yards)
+            max_yard_cards = st.slider(
+                "Max overview yards",
+                min_value=1,
+                max_value=max_overview_yards,
+                value=min(32, max_overview_yards),
+                step=1,
+            )
 
         st.caption("Focused yard board shows one yard clearly. Overview cards below are for scanning active yards on the same day.")
         render_daily_stacking_board(
