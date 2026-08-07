@@ -20,7 +20,7 @@ import plotly.express as px
 import streamlit as st
 
 SCRIPT_DIR = Path(__file__).resolve().parent
-PROGRAM_RUN_DIR = SCRIPT_DIR.parent / "ProgramRun"
+PROGRAM_RUN_DIR = (     SCRIPT_DIR / "ProgramRun"     if (SCRIPT_DIR / "ProgramRun").exists()     else SCRIPT_DIR.parent / "ProgramRun" )
 DAILY_PLACEMENT_FILE = "DailyPlacement.csv"
 YARD_CONFIG_FILE = "YardInputWithStack.csv"
 ASSIGN_RESULT_FILE = "AssignResult_jeil_newyard.csv"
