@@ -1740,7 +1740,10 @@ def render_field_utilization_table(yards_df: pd.DataFrame, field_df: pd.DataFram
     st.dataframe(display, use_container_width=True, hide_index=True)
 
 
-def render_objective_term_comparison(comparison: pd.DataFrame) -> None:
+def render_objective_term_comparison(
+    comparison: pd.DataFrame,
+    runtime_comparison: pd.DataFrame,
+) -> None:
     if comparison.empty:
         st.info("No objective term summary is available.")
         return
@@ -1772,10 +1775,22 @@ def render_objective_term_comparison(comparison: pd.DataFrame) -> None:
         use_container_width=True,
         hide_index=True,
     )
+    runtime_text = ""
+    if not runtime_comparison.empty:
+        runtime_parts = []
+        for _, result in runtime_comparison.iterrows():
+            weight = int(result["mixing_weight"])
+            runtime_sec = pd.to_numeric(result.get("runtime_sec"), errors="coerce")
+            if pd.notna(runtime_sec):
+                runtime_parts.append(f"W{weight} {float(runtime_sec):,.0f}초")
+        if runtime_parts:
+            runtime_text = " 전체 실행시간: " + " / ".join(runtime_parts) + "."
+
     st.caption(
         "동일한 7,805개 packing을 대상으로 비교했습니다. "
         "LNS 2,000회, 기본 가중치 200, 1, 1, 1을 적용했으며 "
         "W0/W500/W2000은 Project Code 가중치만 다릅니다."
+        + runtime_text
     )
 
 
@@ -1829,44 +1844,58 @@ def render_v3_weight_comparison(comparison: pd.DataFrame) -> None:
     )
 
 
-def render_operational_weight_comparison(comparison: pd.DataFrame) -> None:
+def render_operational_weight_comparison(
+    comparison: pd.DataFrame,
+    field_comparison: pd.DataFrame,
+) -> None:
     if comparison.empty:
         st.info("No daily operational experiment summary is available.")
         return
 
-    term_rows = [
-        ("재취급 대상 packing 수", "relocation_sum"),
-        ("지게차 이동거리", "total_weighted_dist_sum"),
-        ("동일 프로젝트 분산거리", "total_project_dist_sum"),
-        ("Project-yard 배정 건수", "project_yard_num"),
-        ("배정 packing 수", "total_assigned_package_num"),
-        ("분할된 Packing Group 수", "split_group_count"),
-        ("Packing Group당 최대 사용 Yard 수", "max_yards_per_group"),
-        ("한 번 이상 사용한 Yard 수", "yards_used"),
-        ("Project Code penalty", "project_mixing_penalty"),
-        ("공통 목적값 (200, 1, 1, 1)", "common_obj_value"),
-        ("전체 실행시간 (초)", "runtime_total_sec"),
-        ("일 평균 실행시간 (초)", "runtime_avg_sec_per_day"),
+    term_keys = [
+        "relocation_sum",
+        "total_weighted_dist_sum",
+        "total_project_dist_sum",
+        "project_yard_num",
+        "total_assigned_package_num",
+        "common_obj_value",
     ]
+
+    label_column = field_comparison.columns[0] if not field_comparison.empty else "항목"
+    field_column = field_comparison.columns[2] if len(field_comparison.columns) >= 3 else "현업"
+    field_rows = (
+        field_comparison.set_index("term")
+        if not field_comparison.empty and "term" in field_comparison.columns
+        else pd.DataFrame()
+    )
 
     weight_columns = [
         f"W{int(weight)}"
         for weight in comparison["project_code_weight"].tolist()
     ]
+    def format_value(value) -> str:
+        if pd.isna(value):
+            return "-"
+        numeric = float(value)
+        if numeric.is_integer():
+            return f"{int(numeric):,}"
+        return f"{numeric:,.1f}"
+
     rows = []
-    for term_label, term_key in term_rows:
-        row = {"항목": term_label, "term": term_key}
+    for term_key in term_keys:
+        if not field_rows.empty and term_key in field_rows.index:
+            field_row = field_rows.loc[term_key]
+            term_label = str(field_row[label_column])
+            field_value = format_value(field_row[field_column])
+        else:
+            term_label = term_key
+            field_value = "-"
+
+        row = {label_column: term_label, "term": term_key, field_column: field_value}
         for _, result in comparison.iterrows():
             weight_column = f"W{int(result['project_code_weight'])}"
             value = result[term_key]
-            if pd.isna(value):
-                row[weight_column] = "-"
-            elif term_key in ["runtime_total_sec", "runtime_avg_sec_per_day"]:
-                row[weight_column] = f"{float(value):,.3f}"
-            elif float(value).is_integer():
-                row[weight_column] = f"{int(value):,}"
-            else:
-                row[weight_column] = f"{float(value):,.1f}"
+            row[weight_column] = format_value(value)
         rows.append(row)
 
     display = pd.DataFrame(rows)
@@ -1876,15 +1905,32 @@ def render_operational_weight_comparison(comparison: pd.DataFrame) -> None:
         unsafe_allow_html=True,
     )
     st.dataframe(
-        display[["항목", "term"] + weight_columns],
+        display[[label_column, "term", field_column] + weight_columns],
         use_container_width=True,
         hide_index=True,
     )
+
+    runtime_parts = []
+    for _, result in comparison.iterrows():
+        weight = int(result["project_code_weight"])
+        runtime_total = pd.to_numeric(result.get("runtime_total_sec"), errors="coerce")
+        runtime_average = pd.to_numeric(result.get("runtime_avg_sec_per_day"), errors="coerce")
+        if pd.notna(runtime_total) and pd.notna(runtime_average):
+            runtime_parts.append(
+                f"W{weight} 전체 {float(runtime_total):,.1f}초, "
+                f"하루 평균 {float(runtime_average):,.3f}초"
+            )
+
+    runtime_text = ""
+    if runtime_parts:
+        runtime_text = " 실행시간: " + " / ".join(runtime_parts) + "."
+
     st.caption(
         "2026-01-05부터 2026-06-12까지 159일을 순차 실행했습니다. "
         "매일 향후 14일 계획을 보고 LNS 200회를 수행한 뒤, "
         "당일 배치를 다음 날 초기 재고로 승계했습니다. "
         "기본 가중치는 200, 1, 1, 1이며 Project Code 가중치만 0 / 500 / 2,000으로 변경했습니다."
+        + runtime_text
     )
 
 
@@ -2192,9 +2238,14 @@ def main() -> None:
         if is_field_source:
             render_field_utilization_map(yards_df, field_df, selected_yard)
             render_field_utilization_table(yards_df, field_df)
-            render_objective_term_comparison(objective_term_comparison)
-            render_v3_weight_comparison(v3_weight_comparison)
-            render_operational_weight_comparison(operational_weight_comparison)
+            render_objective_term_comparison(
+                objective_term_comparison,
+                v3_weight_comparison,
+            )
+            render_operational_weight_comparison(
+                operational_weight_comparison,
+                objective_term_comparison,
+            )
         else:
             comparison = build_utilization_comparison(daily_df, yards_df, field_df)
             if field_df.empty:
