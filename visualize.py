@@ -2276,10 +2276,6 @@ def main() -> None:
     st.set_page_config(page_title="JeilTechnos Yard Map", layout="wide")
     st.markdown(CSS, unsafe_allow_html=True)
     st.title("JeilTechnos Yard Map")
-    st.caption(
-        "현업 배치, 전체기간 LNS, 일 단위 운영 LNS 결과를 "
-        "동일한 MES 유효 packing 7,805개 기준으로 비교합니다."
-    )
 
     with st.sidebar:
         st.header("Input")
@@ -2503,21 +2499,13 @@ def main() -> None:
                         )
 
     elif view_mode == "Daily stacking board":
-        board_intro_col, comparison_col = st.columns([1.2, 1.1], gap="large")
-        with board_intro_col:
-            st.markdown('<p class="section-title">Daily Slot / Level Board</p>', unsafe_allow_html=True)
-            st.caption(
-                "Focused yard board shows one yard clearly. "
-                "Overview cards below are for scanning active yards on the same day."
-            )
-        with comparison_col:
-            render_selected_source_field_comparison(
-                selected_result_label,
-                selected_result_files,
-                objective_term_comparison,
-                v3_weight_comparison,
-                operational_weight_comparison,
-            )
+        render_selected_source_field_comparison(
+            selected_result_label,
+            selected_result_files,
+            objective_term_comparison,
+            v3_weight_comparison,
+            operational_weight_comparison,
+        )
 
         with st.sidebar:
             st.header("Stack Board")
