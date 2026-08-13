@@ -1672,7 +1672,8 @@ def render_v3_weight_comparison(comparison: pd.DataFrame) -> None:
     )
     st.caption(
         "LNS 2,000회, 기본 가중치 200, 1, 1, 1. "
-        "Project Code 가중치 0 / 500 / 2,000 비교."
+        "Project Code 가중치 0 / 500 / 2,000 비교. "
+        "실행시간: W0 31초 / W500 33초 / W2000 34초."
     )
 
 
