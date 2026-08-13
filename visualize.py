@@ -105,35 +105,35 @@ CSS = """
     margin: 0 0 4px 0;
 }
 .selected-compare-card {
-    background: #ffffff;
-    border: 1px solid #d7dee8;
+    background: #0e1117;
+    border: 1px solid #303642;
     border-radius: 8px;
-    padding: 13px 15px 11px 15px;
-    color: #0f172a;
-    box-shadow: 0 6px 18px rgba(15, 23, 42, 0.07);
+    padding: 13px 14px 12px 14px;
+    color: #f8fafc;
+    box-shadow: none;
     margin-bottom: 10px;
 }
 .selected-compare-kicker {
-    color: #64748b;
+    color: #7894bf;
     font-size: 0.66rem;
     font-weight: 800;
     letter-spacing: 0.08em;
     text-transform: uppercase;
 }
 .selected-compare-title {
-    color: #0f172a;
+    color: #f8fafc;
     font-size: 0.96rem;
     font-weight: 800;
     margin-top: 2px;
 }
 .selected-compare-source {
-    color: #64748b;
+    color: #aab4c3;
     font-size: 0.68rem;
     line-height: 1.35;
     margin: 2px 0 3px 0;
 }
 .selected-compare-runtime {
-    color: #475569;
+    color: #cbd5e1;
     font-size: 0.67rem;
     font-weight: 700;
     line-height: 1.35;
@@ -141,34 +141,55 @@ CSS = """
 }
 .selected-compare-grid {
     display: grid;
-    grid-template-columns: minmax(92px, 1.25fr) 0.8fr 0.8fr 0.72fr;
-    column-gap: 8px;
+    grid-template-columns: minmax(98px, 1.25fr) 0.8fr 1.02fr 0.72fr;
+    column-gap: 0;
     row-gap: 0;
     align-items: center;
+    border: 1px solid #303642;
+    border-radius: 5px;
+    overflow: hidden;
 }
 .selected-compare-cell {
-    border-top: 1px solid #e2e8f0;
-    padding: 6px 0;
-    color: #334155;
+    border-top: 1px solid #2a303b;
+    border-left: 1px solid #2a303b;
+    padding: 7px 7px;
+    color: #e5e7eb;
     font-size: 0.7rem;
     text-align: right;
     white-space: nowrap;
 }
+.selected-compare-cell:nth-child(4n + 1) { border-left: 0; }
 .selected-compare-cell.label {
-    color: #475569;
+    color: #f1f5f9;
     font-weight: 700;
     text-align: left;
 }
 .selected-compare-cell.head {
     border-top: 0;
-    color: #94a3b8;
+    color: #aeb8c7;
+    background: #1a1f29;
     font-size: 0.62rem;
     font-weight: 800;
-    padding: 0 0 4px 0;
+    padding: 7px;
 }
-.selected-compare-change.better { color: #047857; font-weight: 800; }
-.selected-compare-change.worse { color: #b91c1c; font-weight: 800; }
-.selected-compare-change.same { color: #64748b; font-weight: 800; }
+.selected-compare-value { color: #f8fafc; font-weight: 750; }
+.selected-compare-weight {
+    display: block;
+    margin-top: 1px;
+    color: #8ea9d0;
+    font-size: 0.59rem;
+    font-weight: 800;
+}
+.selected-compare-weight-note {
+    color: #aeb8c7;
+    font-size: 0.65rem;
+    margin-top: 7px;
+    text-align: right;
+}
+.selected-compare-weight-note strong { color: #f8fafc; }
+.selected-compare-change.better { color: #34d399; font-weight: 800; }
+.selected-compare-change.worse { color: #fb7185; font-weight: 800; }
+.selected-compare-change.same { color: #94a3b8; font-weight: 800; }
 .yard-diagram-scroll { overflow-x: auto; padding-bottom: 8px; }
 .stack-board {
     display: grid;
@@ -1881,6 +1902,12 @@ def render_selected_source_field_comparison(
         ("프로젝트 분산거리", "total_project_dist_sum"),
         ("Project-yard 건수", "project_yard_num"),
     ]
+    term_weights = {
+        "relocation_sum": 200,
+        "total_weighted_dist_sum": 1,
+        "total_project_dist_sum": 1,
+        "project_yard_num": 1,
+    }
 
     field_values: dict[str, float] = {}
     selected_values: dict[str, float] = {}
@@ -1955,7 +1982,7 @@ def render_selected_source_field_comparison(
         "<div class='selected-compare-grid'>",
         "<div class='selected-compare-cell head label'>지표</div>",
         "<div class='selected-compare-cell head'>현업</div>",
-        "<div class='selected-compare-cell head'>선택</div>",
+        "<div class='selected-compare-cell head'>선택 / 가중치</div>",
         "<div class='selected-compare-cell head'>변화</div>",
     ]
 
@@ -1979,11 +2006,20 @@ def render_selected_source_field_comparison(
         comparison_parts.extend([
             f"<div class='selected-compare-cell label'>{html.escape(term_label)}</div>",
             f"<div class='selected-compare-cell'>{format_value(field_value)}</div>",
-            f"<div class='selected-compare-cell'>{format_value(selected_value)}</div>",
+            "<div class='selected-compare-cell selected-compare-value'>"
+            f"{format_value(selected_value)}"
+            f"<span class='selected-compare-weight'>w {term_weights[term_key]:,}</span>"
+            "</div>",
             f"<div class='selected-compare-cell selected-compare-change {change_class}'>{change_label}</div>",
         ])
 
-    comparison_parts.append("</div></div>")
+    comparison_parts.extend([
+        "</div>",
+        "<div class='selected-compare-weight-note'>"
+        f"Project Code 가중치 <strong>{mixing_weight:,}</strong>"
+        "</div>",
+        "</div>",
+    ])
     st.markdown("".join(comparison_parts), unsafe_allow_html=True)
 
 
@@ -2257,7 +2293,7 @@ def main() -> None:
                         )
 
     elif view_mode == "Daily stacking board":
-        board_intro_col, comparison_col = st.columns([1.45, 1.0], gap="large")
+        board_intro_col, comparison_col = st.columns([1.2, 1.1], gap="large")
         with board_intro_col:
             st.markdown('<p class="section-title">Daily Slot / Level Board</p>', unsafe_allow_html=True)
             st.caption(
