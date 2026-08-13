@@ -19,6 +19,7 @@ import plotly.graph_objects as go
 import plotly.express as px
 import streamlit as st
 
+# Deployment data revision: corrected daily operational results (2026-08-13).
 SCRIPT_DIR = Path(__file__).resolve().parent
 PROGRAM_RUN_DIR = SCRIPT_DIR / "ProgramRun"
 if not PROGRAM_RUN_DIR.exists():
