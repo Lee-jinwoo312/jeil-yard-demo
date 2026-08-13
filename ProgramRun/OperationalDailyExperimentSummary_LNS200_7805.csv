@@ -1,0 +1,4 @@
+﻿project_code_weight,lns_iterations_per_day,planning_horizon_days,operating_days,relocation_sum,total_weighted_dist_sum,total_project_dist_sum,project_yard_num,total_assigned_package_num,split_group_count,max_yards_per_group,yards_used,project_mixing_penalty,common_obj_value,runtime_total_sec,runtime_avg_sec_per_day
+0,200,14,159,58,628419.2,170361.0,1721,7805,17,7,81,921,812101.2,58.936,0.371
+500,200,14,159,78,709119.6,204428.0,1722,7805,18,5,102,101,930869.6,62.3,0.392
+2000,200,14,159,137,774306.6,237057.0,1715,7805,18,4,107,33,1040478.6,62.736,0.395

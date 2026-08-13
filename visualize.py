@@ -29,24 +29,41 @@ ASSIGN_RESULT_FILE = "AssignResult_jeil_newyard.csv"
 FIELD_UTILIZATION_FILE = "JeilYardUtilization.csv"
 JEIL_PROJECT_YARD_FILE = "JeilProjectYardUsage.csv"
 FIELD_OBJECT_SUMMARY_FILE = "JeilFieldObjectSummary.csv"
+OPERATIONAL_EXPERIMENT_SUMMARY_FILE = "OperationalDailyExperimentSummary_LNS200_7805.csv"
 BASE_DATE_STR = "2026-01-01"
 FIELD_SOURCE_LABEL = "현업 (Jeil Technos)"
 
 # All experiments use the same 7,805-packing comparison input.
 V3_MIXING_WEIGHTS = [0, 500, 2000]
 
-ALGORITHM_RESULT_SETS = [
+FULL_PERIOD_RESULT_SETS = [
     (
-        f"v3 (Project Code 가중치 {weight:,})",
+        f"전체기간 LNS 2,000 (Project Code 가중치 {weight:,})",
         {
             "daily": f"DailyPlacement_mixW{weight}_LNS2000_7805.csv",
             "assign": f"AssignResult_mixW{weight}_LNS2000_7805.csv",
             "summary": f"Summary_mixW{weight}_LNS2000_7805.csv",
             "mixing_weight": weight,
+            "experiment_type": "full_period",
         },
     )
     for weight in V3_MIXING_WEIGHTS
 ]
+
+OPERATIONAL_RESULT_SETS = [
+    (
+        f"일 단위 운영 LNS 200 (Project Code 가중치 {weight:,})",
+        {
+            "daily": f"DailyPlacement_dailyLNS200_mixW{weight}_7805.csv",
+            "assign": f"AssignResult_dailyLNS200_mixW{weight}_7805.csv",
+            "mixing_weight": weight,
+            "experiment_type": "daily_operational",
+        },
+    )
+    for weight in V3_MIXING_WEIGHTS
+]
+
+ALGORITHM_RESULT_SETS = FULL_PERIOD_RESULT_SETS + OPERATIONAL_RESULT_SETS
 
 YARD_DIAGRAM_WIDTH = 900
 YARD_DIAGRAM_HEIGHT = 560
@@ -268,6 +285,21 @@ def load_daily_placement(program_run_dir: str, daily_file: str = DAILY_PLACEMENT
         if col in df.columns:
             df[col] = pd.to_numeric(df[col], errors="coerce")
 
+    # Operational daily results store calendar dates such as 20260105 in the
+    # day column. Normalize them to the day-index convention used by the UI.
+    if "day" in df.columns:
+        calendar_mask = df["day"].between(19000101, 21001231, inclusive="both")
+        if calendar_mask.any():
+            calendar_dates = pd.to_datetime(
+                df.loc[calendar_mask, "day"].astype("Int64").astype(str),
+                format="%Y%m%d",
+                errors="coerce",
+            )
+            base_date = pd.Timestamp(BASE_DATE_STR)
+            df.loc[calendar_mask, "day"] = (
+                calendar_dates - base_date
+            ).dt.days + 1
+
     for col in ["yard_name", "packing_id", "project_code", "project_name", "group_id"]:
         if col in df.columns:
             df[col] = df[col].astype(str).str.strip()
@@ -443,6 +475,40 @@ def load_v3_weight_comparison(program_run_dir: str) -> pd.DataFrame:
     )
 
     return comparison.sort_values("mixing_weight").reset_index(drop=True)
+
+
+@st.cache_data(ttl=300)
+def load_operational_weight_comparison(program_run_dir: str) -> pd.DataFrame:
+    path = Path(program_run_dir) / OPERATIONAL_EXPERIMENT_SUMMARY_FILE
+    if not path.exists():
+        return pd.DataFrame()
+
+    comparison = pd.read_csv(path)
+    numeric_columns = [
+        "project_code_weight",
+        "lns_iterations_per_day",
+        "planning_horizon_days",
+        "operating_days",
+        "relocation_sum",
+        "total_weighted_dist_sum",
+        "total_project_dist_sum",
+        "project_yard_num",
+        "total_assigned_package_num",
+        "split_group_count",
+        "max_yards_per_group",
+        "yards_used",
+        "project_mixing_penalty",
+        "common_obj_value",
+        "runtime_total_sec",
+        "runtime_avg_sec_per_day",
+    ]
+    if not set(numeric_columns).issubset(comparison.columns):
+        return pd.DataFrame()
+
+    for column in numeric_columns:
+        comparison[column] = pd.to_numeric(comparison[column], errors="coerce")
+
+    return comparison.sort_values("project_code_weight").reset_index(drop=True)
 
 
 @st.cache_data(ttl=300)
@@ -1677,6 +1743,65 @@ def render_v3_weight_comparison(comparison: pd.DataFrame) -> None:
     )
 
 
+def render_operational_weight_comparison(comparison: pd.DataFrame) -> None:
+    if comparison.empty:
+        st.info("No daily operational experiment summary is available.")
+        return
+
+    term_rows = [
+        ("재취급 대상 packing 수", "relocation_sum"),
+        ("지게차 이동거리", "total_weighted_dist_sum"),
+        ("동일 프로젝트 분산거리", "total_project_dist_sum"),
+        ("Project-yard 배정 건수", "project_yard_num"),
+        ("배정 packing 수", "total_assigned_package_num"),
+        ("분할된 Packing Group 수", "split_group_count"),
+        ("Packing Group당 최대 사용 Yard 수", "max_yards_per_group"),
+        ("한 번 이상 사용한 Yard 수", "yards_used"),
+        ("Project Code penalty", "project_mixing_penalty"),
+        ("공통 목적값 (200, 1, 1, 1)", "common_obj_value"),
+        ("전체 실행시간 (초)", "runtime_total_sec"),
+        ("일 평균 실행시간 (초)", "runtime_avg_sec_per_day"),
+    ]
+
+    weight_columns = [
+        f"W{int(weight)}"
+        for weight in comparison["project_code_weight"].tolist()
+    ]
+    rows = []
+    for term_label, term_key in term_rows:
+        row = {"항목": term_label, "term": term_key}
+        for _, result in comparison.iterrows():
+            weight_column = f"W{int(result['project_code_weight'])}"
+            value = result[term_key]
+            if pd.isna(value):
+                row[weight_column] = "-"
+            elif term_key in ["runtime_total_sec", "runtime_avg_sec_per_day"]:
+                row[weight_column] = f"{float(value):,.3f}"
+            elif float(value).is_integer():
+                row[weight_column] = f"{int(value):,}"
+            else:
+                row[weight_column] = f"{float(value):,.1f}"
+        rows.append(row)
+
+    display = pd.DataFrame(rows)
+
+    st.markdown(
+        '<p class="section-title">Daily Operational LNS Comparison - 7,805 Packings</p>',
+        unsafe_allow_html=True,
+    )
+    st.dataframe(
+        display[["항목", "term"] + weight_columns],
+        use_container_width=True,
+        hide_index=True,
+    )
+    st.caption(
+        "2026-01-05부터 2026-06-12까지 159일을 순차 실행했습니다. "
+        "매일 향후 14일 계획을 보고 LNS 200회를 수행한 뒤, "
+        "당일 배치를 다음 날 초기 재고로 승계했습니다. "
+        "기본 가중치는 200, 1, 1, 1이며 Project Code 가중치만 0 / 500 / 2,000으로 변경했습니다."
+    )
+
+
 def render_jeil_project_usage_sample() -> None:
     st.markdown("#### Expected Jeil project-yard CSV format")
     sample = pd.DataFrame({
@@ -1726,7 +1851,7 @@ def main() -> None:
     st.markdown(CSS, unsafe_allow_html=True)
     st.title("JeilTechnos Yard Map")
     st.caption(
-        "현업 배치와 Project Code 가중치 0 / 500 / 2,000 결과를 "
+        "현업 배치, 전체기간 LNS, 일 단위 운영 LNS 결과를 "
         "동일한 MES 유효 packing 7,805개 기준으로 비교합니다."
     )
 
@@ -1778,6 +1903,7 @@ def main() -> None:
     jeil_project_usage_df = load_jeil_project_yard_usage(program_run_dir)
     objective_term_comparison = load_objective_term_comparison(program_run_dir)
     v3_weight_comparison = load_v3_weight_comparison(program_run_dir)
+    operational_weight_comparison = load_operational_weight_comparison(program_run_dir)
     if daily_df.empty or yards_df.empty:
         return
 
@@ -1847,6 +1973,7 @@ def main() -> None:
             render_field_utilization_table(yards_df, field_df)
             render_objective_term_comparison(objective_term_comparison)
             render_v3_weight_comparison(v3_weight_comparison)
+            render_operational_weight_comparison(operational_weight_comparison)
         else:
             comparison = build_utilization_comparison(daily_df, yards_df, field_df)
             if field_df.empty:
