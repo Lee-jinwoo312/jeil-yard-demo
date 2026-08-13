@@ -2212,7 +2212,7 @@ def render_selected_source_field_comparison(
             f"<div class='selected-compare-cell'>{format_value(field_value)}</div>",
             "<div class='selected-compare-cell selected-compare-value'>"
             f"{format_value(selected_value)}"
-            f"<span class='selected-compare-weight'>w {term_weights[term_key]:,}</span>"
+            f"<span class='selected-compare-weight'>가중치 {term_weights[term_key]:,}</span>"
             "</div>",
             f"<div class='selected-compare-cell selected-compare-change {change_class}'>{change_label}</div>",
         ])
