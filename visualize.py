@@ -1,5 +1,5 @@
 """
-JeilTechnos yard visualization for field, v1, v2, and v3 project-code-weight results.
+JeilTechnos yard visualization for field and selected project-code-weight results.
 
 This version reuses the old hand-drawn yard diagram style:
 - A/B/C/D/E/F/G/H/I yards are drawn as fixed rectangles.
@@ -20,7 +20,9 @@ import plotly.express as px
 import streamlit as st
 
 SCRIPT_DIR = Path(__file__).resolve().parent
-PROGRAM_RUN_DIR = (     SCRIPT_DIR / "ProgramRun"     if (SCRIPT_DIR / "ProgramRun").exists()     else SCRIPT_DIR.parent / "ProgramRun" )
+PROGRAM_RUN_DIR = SCRIPT_DIR / "ProgramRun"
+if not PROGRAM_RUN_DIR.exists():
+    PROGRAM_RUN_DIR = SCRIPT_DIR.parent / "ProgramRun"
 DAILY_PLACEMENT_FILE = "DailyPlacement.csv"
 YARD_CONFIG_FILE = "YardInputWithStack.csv"
 ASSIGN_RESULT_FILE = "AssignResult_jeil_newyard.csv"
@@ -30,29 +32,12 @@ FIELD_OBJECT_SUMMARY_FILE = "JeilFieldObjectSummary.csv"
 BASE_DATE_STR = "2026-01-01"
 FIELD_SOURCE_LABEL = "현업 (Jeil Technos)"
 
-# All versions use the same 7,805-packing comparison input.
-V3_MIXING_WEIGHTS = [0, 5, 50, 100, 200, 500, 1000, 2000, 5000, 10000, 20000, 50000]
+# All experiments use the same 7,805-packing comparison input.
+V3_MIXING_WEIGHTS = [0, 500, 2000]
 
 ALGORITHM_RESULT_SETS = [
     (
-        "v1",
-        {
-            "daily": "DailyPlacement_compare_v1.csv",
-            "assign": "AssignResult_compare_v1.csv",
-            "summary": "Summary_compare_v1.csv",
-        },
-    ),
-    (
-        "v2 (수정 후)",
-        {
-            "daily": "DailyPlacement_compare_v2.csv",
-            "assign": "AssignResult_compare_v2.csv",
-            "summary": "Summary_compare_v2.csv",
-        },
-    ),
-] + [
-    (
-        f"v3 (project code 가중치 {weight})",
+        f"v3 (Project Code 가중치 {weight:,})",
         {
             "daily": f"DailyPlacement_mixW{weight}_LNS2000_7805.csv",
             "assign": f"AssignResult_mixW{weight}_LNS2000_7805.csv",
@@ -336,7 +321,7 @@ def load_assignment_result(program_run_dir: str, assign_file: str = ASSIGN_RESUL
 
 @st.cache_data(ttl=300)
 def load_objective_term_comparison(program_run_dir: str) -> pd.DataFrame:
-    """Load field, v1, and v2 objective terms on the common comparison input."""
+    """Load field and selected project-code-weight objective terms."""
     term_keys = [
         "relocation_sum",
         "total_weighted_dist_sum",
@@ -360,10 +345,7 @@ def load_objective_term_comparison(program_run_dir: str) -> pd.DataFrame:
             field_values = pd.to_numeric(field_raw["value"], errors="coerce")
             values_by_source["현업"] = dict(zip(field_raw["term"].astype(str), field_values))
 
-    for result_label, files in ALGORITHM_RESULT_SETS:
-        if result_label.startswith("v3"):
-            continue
-
+    for _, files in ALGORITHM_RESULT_SETS:
         summary_file = files.get("summary")
         if not summary_file:
             continue
@@ -384,12 +366,15 @@ def load_objective_term_comparison(program_run_dir: str) -> pd.DataFrame:
             if pd.notna(value):
                 parsed[key] = float(value)
 
-        values_by_source[result_label.split(" ")[0]] = parsed
+        mixing_weight = int(files["mixing_weight"])
+        values_by_source[f"W{mixing_weight}"] = parsed
+
+    source_labels = ["현업"] + [f"W{weight}" for weight in V3_MIXING_WEIGHTS]
 
     rows = []
     for key in term_keys:
         row = {"항목": term_labels[key], "term": key}
-        for source in ["현업", "v1", "v2"]:
+        for source in source_labels:
             row[source] = values_by_source.get(source, {}).get(key, pd.NA)
         rows.append(row)
 
@@ -403,7 +388,7 @@ def load_objective_term_comparison(program_run_dir: str) -> pd.DataFrame:
         "항목": "공통 목적값 (weight: 200, 1, 1, 1)",
         "term": "common_obj_value",
     }
-    for source in ["현업", "v1", "v2"]:
+    for source in source_labels:
         source_values = values_by_source.get(source, {})
         if all(key in source_values for key in common_weights):
             objective_row[source] = sum(
@@ -444,6 +429,10 @@ def load_v3_weight_comparison(program_run_dir: str) -> pd.DataFrame:
     numeric_columns = list(required_columns)
     for column in numeric_columns:
         comparison[column] = pd.to_numeric(comparison[column], errors="coerce")
+
+    comparison = comparison[
+        comparison["mixing_weight"].isin(V3_MIXING_WEIGHTS)
+    ].copy()
 
     comparison["common_obj_value"] = (
         comparison["relocation_sum"] * 200.0
@@ -1613,7 +1602,11 @@ def render_objective_term_comparison(comparison: pd.DataFrame) -> None:
             return f"{int(numeric):,}"
         return f"{numeric:,.1f}"
 
-    for source in ["현업", "v1", "v2"]:
+    source_columns = [
+        column for column in comparison.columns
+        if column not in ["항목", "term"]
+    ]
+    for source in source_columns:
         if source in display.columns:
             display[source] = display[source].map(format_term_value)
 
@@ -1622,13 +1615,14 @@ def render_objective_term_comparison(comparison: pd.DataFrame) -> None:
         unsafe_allow_html=True,
     )
     st.dataframe(
-        display[["항목", "term", "현업", "v1", "v2"]],
+        display[["항목", "term"] + source_columns],
         use_container_width=True,
         hide_index=True,
     )
     st.caption(
-        "Raw term values use the same 7,805-packing comparison set. "
-        "The final row recalculates every objective value with common weights 200, 1, 1, 1."
+        "동일한 7,805개 packing을 대상으로 비교했습니다. "
+        "LNS 2,000회, 기본 가중치 200, 1, 1, 1을 적용했으며 "
+        "W0/W500/W2000은 Project Code 가중치만 다릅니다."
     )
 
 
@@ -1638,12 +1632,11 @@ def render_v3_weight_comparison(comparison: pd.DataFrame) -> None:
         return
 
     term_rows = [
-        ("재취급 대상 packing 수", "relocation_sum"),
-        ("지게차 이동거리", "total_weighted_dist_sum"),
-        ("동일 프로젝트 분산거리", "total_project_dist_sum"),
-        ("Project-yard 배정 건수", "project_yard_num"),
-        ("배정 packing 수", "total_assigned_package_num"),
-        ("공통 목적값 (weight: 200, 1, 1, 1)", "common_obj_value"),
+        ("Project Code penalty", "project_mixing_penalty"),
+        ("여러 Project Code가 배정된 Yard 수", "mixed_yards"),
+        ("여러 Project Code가 함께 존재한 Yard-day 수", "mixed_yard_days"),
+        ("동일 Yard-day의 최대 Project Code 수", "max_project_codes_in_same_yard_day"),
+        ("한 번 이상 사용한 Yard 수", "used_yards"),
     ]
 
     weight_columns = [
@@ -1667,7 +1660,7 @@ def render_v3_weight_comparison(comparison: pd.DataFrame) -> None:
     display = pd.DataFrame(rows)
 
     st.markdown(
-        '<p class="section-title">v3 Project Code Weight Comparison - 7,805 Packings</p>',
+        '<p class="section-title">Project Code Weight Comparison - 7,805 Packings</p>',
         unsafe_allow_html=True,
     )
     st.dataframe(
@@ -1676,9 +1669,8 @@ def render_v3_weight_comparison(comparison: pd.DataFrame) -> None:
         hide_index=True,
     )
     st.caption(
-        "All v3 results use 300 LNS iterations and common base weights 200, 1, 1, 1. "
-        "Columns W0 through W50000 change only the project code weight. "
-        "The final row excludes that penalty for a direct comparison."
+        "LNS 2,000회, 기본 가중치 200, 1, 1, 1. "
+        "Project Code 가중치 0 / 500 / 2,000 비교."
     )
 
 
@@ -1731,8 +1723,8 @@ def main() -> None:
     st.markdown(CSS, unsafe_allow_html=True)
     st.title("JeilTechnos Yard Map")
     st.caption(
-        "Field, v1, v2, and v3 project-code-weight yard assignments "
-        "on the same MES-valid 7,805-packing input."
+        "현업 배치와 Project Code 가중치 0 / 500 / 2,000 결과를 "
+        "동일한 MES 유효 packing 7,805개 기준으로 비교합니다."
     )
 
     with st.sidebar:
