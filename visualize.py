@@ -104,6 +104,64 @@ CSS = """
     letter-spacing: 0.08em;
     margin: 0 0 4px 0;
 }
+.selected-compare-card {
+    background: #ffffff;
+    border: 1px solid #d7dee8;
+    border-radius: 8px;
+    padding: 13px 15px 11px 15px;
+    color: #0f172a;
+    box-shadow: 0 6px 18px rgba(15, 23, 42, 0.07);
+    margin-bottom: 10px;
+}
+.selected-compare-kicker {
+    color: #64748b;
+    font-size: 0.66rem;
+    font-weight: 800;
+    letter-spacing: 0.08em;
+    text-transform: uppercase;
+}
+.selected-compare-title {
+    color: #0f172a;
+    font-size: 0.96rem;
+    font-weight: 800;
+    margin-top: 2px;
+}
+.selected-compare-source {
+    color: #64748b;
+    font-size: 0.68rem;
+    line-height: 1.35;
+    margin: 2px 0 9px 0;
+}
+.selected-compare-grid {
+    display: grid;
+    grid-template-columns: minmax(92px, 1.25fr) 0.8fr 0.8fr 0.72fr;
+    column-gap: 8px;
+    row-gap: 0;
+    align-items: center;
+}
+.selected-compare-cell {
+    border-top: 1px solid #e2e8f0;
+    padding: 6px 0;
+    color: #334155;
+    font-size: 0.7rem;
+    text-align: right;
+    white-space: nowrap;
+}
+.selected-compare-cell.label {
+    color: #475569;
+    font-weight: 700;
+    text-align: left;
+}
+.selected-compare-cell.head {
+    border-top: 0;
+    color: #94a3b8;
+    font-size: 0.62rem;
+    font-weight: 800;
+    padding: 0 0 4px 0;
+}
+.selected-compare-change.better { color: #047857; font-weight: 800; }
+.selected-compare-change.worse { color: #b91c1c; font-weight: 800; }
+.selected-compare-change.same { color: #64748b; font-weight: 800; }
 .yard-diagram-scroll { overflow-x: auto; padding-bottom: 8px; }
 .stack-board {
     display: grid;
@@ -1802,6 +1860,97 @@ def render_operational_weight_comparison(comparison: pd.DataFrame) -> None:
     )
 
 
+def render_selected_source_field_comparison(
+    selected_result_label: str,
+    selected_result_files: dict,
+    objective_comparison: pd.DataFrame,
+    operational_comparison: pd.DataFrame,
+) -> None:
+    """Compare the currently selected algorithm result with the field baseline."""
+    term_rows = [
+        ("재취급 packing", "relocation_sum"),
+        ("지게차 이동거리", "total_weighted_dist_sum"),
+        ("프로젝트 분산거리", "total_project_dist_sum"),
+        ("Project-yard 건수", "project_yard_num"),
+    ]
+
+    field_values: dict[str, float] = {}
+    selected_values: dict[str, float] = {}
+
+    if not objective_comparison.empty and {"term", "현업"}.issubset(objective_comparison.columns):
+        for _, row in objective_comparison.iterrows():
+            value = pd.to_numeric(row.get("현업"), errors="coerce")
+            if pd.notna(value):
+                field_values[str(row["term"])] = float(value)
+
+    experiment_type = str(selected_result_files.get("experiment_type", ""))
+    mixing_weight = int(selected_result_files.get("mixing_weight", 0))
+
+    if experiment_type == "full_period":
+        source_column = f"W{mixing_weight}"
+        if not objective_comparison.empty and source_column in objective_comparison.columns:
+            for _, row in objective_comparison.iterrows():
+                value = pd.to_numeric(row.get(source_column), errors="coerce")
+                if pd.notna(value):
+                    selected_values[str(row["term"])] = float(value)
+    elif experiment_type == "daily_operational" and not operational_comparison.empty:
+        matching_rows = operational_comparison[
+            operational_comparison["project_code_weight"] == mixing_weight
+        ]
+        if not matching_rows.empty:
+            selected_row = matching_rows.iloc[0]
+            for _, term_key in term_rows:
+                value = pd.to_numeric(selected_row.get(term_key), errors="coerce")
+                if pd.notna(value):
+                    selected_values[term_key] = float(value)
+
+    def format_value(value: float | None) -> str:
+        if value is None or pd.isna(value):
+            return "-"
+        if float(value).is_integer():
+            return f"{int(value):,}"
+        return f"{float(value):,.1f}"
+
+    comparison_parts = [
+        "<div class='selected-compare-card'>",
+        "<div class='selected-compare-kicker'>Field vs selected</div>",
+        "<div class='selected-compare-title'>현업 대비 선택 결과</div>",
+        f"<div class='selected-compare-source'>{html.escape(selected_result_label)}</div>",
+        "<div class='selected-compare-grid'>",
+        "<div class='selected-compare-cell head label'>지표</div>",
+        "<div class='selected-compare-cell head'>현업</div>",
+        "<div class='selected-compare-cell head'>선택</div>",
+        "<div class='selected-compare-cell head'>변화</div>",
+    ]
+
+    for term_label, term_key in term_rows:
+        field_value = field_values.get(term_key)
+        selected_value = selected_values.get(term_key)
+        change_label = "-"
+        change_class = "same"
+
+        if field_value is not None and selected_value is not None and field_value != 0:
+            change_percent = (selected_value - field_value) / field_value * 100.0
+            if abs(change_percent) < 0.05:
+                change_label = "동일"
+            elif change_percent < 0:
+                change_label = f"↓ {abs(change_percent):.1f}%"
+                change_class = "better"
+            else:
+                change_label = f"↑ {change_percent:.1f}%"
+                change_class = "worse"
+
+        comparison_parts.extend([
+            f"<div class='selected-compare-cell label'>{html.escape(term_label)}</div>",
+            f"<div class='selected-compare-cell'>{format_value(field_value)}</div>",
+            f"<div class='selected-compare-cell'>{format_value(selected_value)}</div>",
+            f"<div class='selected-compare-cell selected-compare-change {change_class}'>{change_label}</div>",
+        ])
+
+    comparison_parts.append("</div></div>")
+    st.markdown("".join(comparison_parts), unsafe_allow_html=True)
+
+
 def render_jeil_project_usage_sample() -> None:
     st.markdown("#### Expected Jeil project-yard CSV format")
     sample = pd.DataFrame({
@@ -2072,7 +2221,21 @@ def main() -> None:
                         )
 
     elif view_mode == "Daily stacking board":
-        st.markdown('<p class="section-title">Daily Slot / Level Board</p>', unsafe_allow_html=True)
+        board_intro_col, comparison_col = st.columns([1.45, 1.0], gap="large")
+        with board_intro_col:
+            st.markdown('<p class="section-title">Daily Slot / Level Board</p>', unsafe_allow_html=True)
+            st.caption(
+                "Focused yard board shows one yard clearly. "
+                "Overview cards below are for scanning active yards on the same day."
+            )
+        with comparison_col:
+            render_selected_source_field_comparison(
+                selected_result_label,
+                selected_result_files,
+                objective_term_comparison,
+                operational_weight_comparison,
+            )
+
         with st.sidebar:
             st.header("Stack Board")
             block_options = sorted(yards_df["block"].dropna().astype(str).unique().tolist())
@@ -2111,7 +2274,6 @@ def main() -> None:
                 step=1,
             )
 
-        st.caption("Focused yard board shows one yard clearly. Overview cards below are for scanning active yards on the same day.")
         render_daily_stacking_board(
             daily_df,
             yards_df,
