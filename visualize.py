@@ -130,7 +130,14 @@ CSS = """
     color: #64748b;
     font-size: 0.68rem;
     line-height: 1.35;
-    margin: 2px 0 9px 0;
+    margin: 2px 0 3px 0;
+}
+.selected-compare-runtime {
+    color: #475569;
+    font-size: 0.67rem;
+    font-weight: 700;
+    line-height: 1.35;
+    margin: 0 0 9px 0;
 }
 .selected-compare-grid {
     display: grid;
@@ -1864,6 +1871,7 @@ def render_selected_source_field_comparison(
     selected_result_label: str,
     selected_result_files: dict,
     objective_comparison: pd.DataFrame,
+    full_period_comparison: pd.DataFrame,
     operational_comparison: pd.DataFrame,
 ) -> None:
     """Compare the currently selected algorithm result with the field baseline."""
@@ -1876,6 +1884,7 @@ def render_selected_source_field_comparison(
 
     field_values: dict[str, float] = {}
     selected_values: dict[str, float] = {}
+    runtime_label = "실행시간 정보 없음"
 
     if not objective_comparison.empty and {"term", "현업"}.issubset(objective_comparison.columns):
         for _, row in objective_comparison.iterrows():
@@ -1893,6 +1902,16 @@ def render_selected_source_field_comparison(
                 value = pd.to_numeric(row.get(source_column), errors="coerce")
                 if pd.notna(value):
                     selected_values[str(row["term"])] = float(value)
+        if not full_period_comparison.empty:
+            runtime_rows = full_period_comparison[
+                full_period_comparison["mixing_weight"] == mixing_weight
+            ]
+            if not runtime_rows.empty:
+                runtime_sec = pd.to_numeric(
+                    runtime_rows.iloc[0].get("runtime_sec"), errors="coerce"
+                )
+                if pd.notna(runtime_sec):
+                    runtime_label = f"전체 실행시간 {float(runtime_sec):,.0f}초"
     elif experiment_type == "daily_operational" and not operational_comparison.empty:
         matching_rows = operational_comparison[
             operational_comparison["project_code_weight"] == mixing_weight
@@ -1903,6 +1922,22 @@ def render_selected_source_field_comparison(
                 value = pd.to_numeric(selected_row.get(term_key), errors="coerce")
                 if pd.notna(value):
                     selected_values[term_key] = float(value)
+            runtime_total = pd.to_numeric(
+                selected_row.get("runtime_total_sec"), errors="coerce"
+            )
+            runtime_average = pd.to_numeric(
+                selected_row.get("runtime_avg_sec_per_day"), errors="coerce"
+            )
+            operating_days = pd.to_numeric(
+                selected_row.get("operating_days"), errors="coerce"
+            )
+            if pd.notna(runtime_total) and pd.notna(runtime_average):
+                runtime_label = (
+                    f"전체 실행시간 {float(runtime_total):,.1f}초 · "
+                    f"하루 평균 {float(runtime_average):,.3f}초"
+                )
+                if pd.notna(operating_days):
+                    runtime_label += f" ({int(operating_days):,}일)"
 
     def format_value(value: float | None) -> str:
         if value is None or pd.isna(value):
@@ -1916,6 +1951,7 @@ def render_selected_source_field_comparison(
         "<div class='selected-compare-kicker'>Field vs selected</div>",
         "<div class='selected-compare-title'>현업 대비 선택 결과</div>",
         f"<div class='selected-compare-source'>{html.escape(selected_result_label)}</div>",
+        f"<div class='selected-compare-runtime'>{html.escape(runtime_label)}</div>",
         "<div class='selected-compare-grid'>",
         "<div class='selected-compare-cell head label'>지표</div>",
         "<div class='selected-compare-cell head'>현업</div>",
@@ -2233,6 +2269,7 @@ def main() -> None:
                 selected_result_label,
                 selected_result_files,
                 objective_term_comparison,
+                v3_weight_comparison,
                 operational_weight_comparison,
             )
 
