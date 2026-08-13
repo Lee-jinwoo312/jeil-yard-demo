@@ -116,26 +116,26 @@ CSS = """
 }
 .selected-compare-kicker {
     color: #7894bf;
-    font-size: 0.66rem;
+    font-size: 0.76rem;
     font-weight: 800;
     letter-spacing: 0.08em;
     text-transform: uppercase;
 }
 .selected-compare-title {
     color: #f8fafc;
-    font-size: 0.96rem;
+    font-size: 1.12rem;
     font-weight: 800;
     margin-top: 2px;
 }
 .selected-compare-source {
     color: #aab4c3;
-    font-size: 0.68rem;
+    font-size: 0.8rem;
     line-height: 1.35;
     margin: 2px 0 3px 0;
 }
 .selected-compare-runtime {
     color: #cbd5e1;
-    font-size: 0.67rem;
+    font-size: 0.78rem;
     font-weight: 700;
     line-height: 1.35;
     margin: 0 0 9px 0;
@@ -153,9 +153,9 @@ CSS = """
 .selected-compare-cell {
     border-top: 1px solid #2a303b;
     border-left: 1px solid #2a303b;
-    padding: 7px 7px;
+    padding: 9px 8px;
     color: #e5e7eb;
-    font-size: 0.7rem;
+    font-size: 0.82rem;
     text-align: right;
     white-space: nowrap;
 }
@@ -169,21 +169,21 @@ CSS = """
     border-top: 0;
     color: #aeb8c7;
     background: #1a1f29;
-    font-size: 0.62rem;
+    font-size: 0.72rem;
     font-weight: 800;
-    padding: 7px;
+    padding: 8px;
 }
 .selected-compare-value { color: #f8fafc; font-weight: 750; }
 .selected-compare-weight {
     display: block;
     margin-top: 1px;
     color: #8ea9d0;
-    font-size: 0.59rem;
+    font-size: 0.68rem;
     font-weight: 800;
 }
 .selected-compare-weight-note {
     color: #aeb8c7;
-    font-size: 0.65rem;
+    font-size: 0.75rem;
     margin-top: 7px;
     text-align: right;
 }
@@ -2106,13 +2106,11 @@ def render_selected_source_field_comparison(
         ("재취급 packing", "relocation_sum"),
         ("지게차 이동거리", "total_weighted_dist_sum"),
         ("프로젝트 분산거리", "total_project_dist_sum"),
-        ("Project-yard 건수", "project_yard_num"),
     ]
     term_weights = {
         "relocation_sum": 200,
         "total_weighted_dist_sum": 1,
         "total_project_dist_sum": 1,
-        "project_yard_num": 1,
     }
 
     field_values: dict[str, float] = {}
