@@ -422,6 +422,7 @@ def load_v3_weight_comparison(program_run_dir: str) -> pd.DataFrame:
         "mixed_yard_days",
         "max_project_codes_in_same_yard_day",
         "used_yards",
+        "runtime_sec",
     }
     if not required_columns.issubset(comparison.columns):
         return pd.DataFrame()
@@ -1637,6 +1638,7 @@ def render_v3_weight_comparison(comparison: pd.DataFrame) -> None:
         ("여러 Project Code가 함께 존재한 Yard-day 수", "mixed_yard_days"),
         ("동일 Yard-day의 최대 Project Code 수", "max_project_codes_in_same_yard_day"),
         ("한 번 이상 사용한 Yard 수", "used_yards"),
+        ("실행시간 (초)", "runtime_sec"),
     ]
 
     weight_columns = [
