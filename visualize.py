@@ -255,10 +255,6 @@ CSS = """
     align-items: center;
     justify-content: center;
 }
-.stack-level-head.fourth-label {
-    color: #b91c1c;
-    background: #fff1f2;
-}
 .stack-focus-cell {
     min-height: 58px;
     border-radius: 8px;
@@ -270,14 +266,32 @@ CSS = """
     align-items: center;
     padding: 6px;
     overflow: hidden;
+    position: relative;
 }
 .stack-focus-cell.filled {
     border-color: rgba(15, 23, 42, 0.16);
     color: #ffffff;
     box-shadow: inset 0 0 0 1px rgba(15, 23, 42, 0.16);
 }
-.stack-focus-cell.fourth {
-    box-shadow: inset 0 0 0 3px #ef4444;
+.stack-focus-cell.today-inbound {
+    box-shadow:
+        inset 0 0 0 2px #ffffff,
+        inset 0 0 0 7px #047857,
+        inset 0 0 0 9px #ffffff;
+}
+.stack-focus-cell.tomorrow-outbound {
+    box-shadow:
+        inset 0 0 0 2px #ffffff,
+        inset 0 0 0 7px #b91c1c,
+        inset 0 0 0 9px #ffffff;
+}
+.stack-focus-cell.today-inbound.tomorrow-outbound {
+    box-shadow:
+        inset 0 0 0 2px #ffffff,
+        inset 0 0 0 6px #b91c1c,
+        inset 0 0 0 8px #ffffff,
+        inset 0 0 0 12px #047857,
+        inset 0 0 0 14px #ffffff;
 }
 .stack-cell-main {
     font-size: 0.76rem;
@@ -343,9 +357,57 @@ CSS = """
 .stack-cell.filled {
     border-color: rgba(15, 23, 42, 0.18);
 }
-.stack-cell.fourth {
-    outline: 2px solid #dc2626;
-    outline-offset: -2px;
+.stack-cell.today-inbound {
+    box-shadow:
+        inset 0 0 0 1px #ffffff,
+        inset 0 0 0 3px #047857,
+        inset 0 0 0 4px #ffffff;
+}
+.stack-cell.tomorrow-outbound {
+    box-shadow:
+        inset 0 0 0 1px #ffffff,
+        inset 0 0 0 3px #b91c1c,
+        inset 0 0 0 4px #ffffff;
+}
+.stack-cell.today-inbound.tomorrow-outbound {
+    box-shadow:
+        inset 0 0 0 1px #ffffff,
+        inset 0 0 0 3px #b91c1c,
+        inset 0 0 0 4px #ffffff,
+        inset 0 0 0 6px #047857;
+}
+.stack-status-legend {
+    display: flex;
+    align-items: center;
+    gap: 14px;
+    margin: 2px 0 12px 0;
+    color: #475569;
+    font-size: 0.7rem;
+    font-weight: 700;
+}
+.stack-status-item {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+}
+.stack-status-swatch {
+    display: inline-block;
+    width: 18px;
+    height: 12px;
+    border-radius: 3px;
+    background: #f8fafc;
+}
+.stack-status-swatch.inbound {
+    border: 4px solid #047857;
+    box-shadow:
+        0 0 0 2px #ffffff,
+        inset 0 0 0 1px #ffffff;
+}
+.stack-status-swatch.outbound {
+    border: 4px solid #b91c1c;
+    box-shadow:
+        0 0 0 2px #ffffff,
+        inset 0 0 0 1px #ffffff;
 }
 .stack-empty-note {
     color: #64748b;
@@ -724,6 +786,51 @@ def load_jeil_project_yard_usage(program_run_dir: str) -> pd.DataFrame:
 def day_to_date_label(day: int) -> str:
     base = datetime.strptime(BASE_DATE_STR, "%Y-%m-%d")
     return (base + timedelta(days=int(day) - 1)).strftime("%Y-%m-%d")
+
+
+def day_to_date_key(day: int) -> str:
+    """Return the YYYYMMDD key used by packing schedule fields."""
+    base = datetime.strptime(BASE_DATE_STR, "%Y-%m-%d")
+    return (base + timedelta(days=int(day) - 1)).strftime("%Y%m%d")
+
+
+def normalize_schedule_date(value: object) -> str:
+    """Normalize a CSV date value to YYYYMMDD when possible."""
+    text = str(value).strip().replace("-", "")
+    if text.endswith(".0"):
+        text = text[:-2]
+    return text if len(text) == 8 and text.isdigit() else ""
+
+
+def get_packing_schedule_dates(row: pd.Series) -> tuple[str, str]:
+    """Read inbound/outbound dates from explicit columns or legacy group_id."""
+    inbound_date = normalize_schedule_date(row.get("st_date", ""))
+    outbound_date = normalize_schedule_date(row.get("end_date", ""))
+    if inbound_date and outbound_date:
+        return inbound_date, outbound_date
+
+    date_tokens = [
+        token
+        for token in str(row.get("group_id", "")).split("_")
+        if len(token) == 8 and token.isdigit()
+    ]
+    if len(date_tokens) >= 2:
+        return date_tokens[-2], date_tokens[-1]
+    return inbound_date, outbound_date
+
+
+def get_packing_schedule_status(
+    row: pd.Series,
+    today_key: str,
+    tomorrow_key: str,
+) -> tuple[bool, bool, str, str]:
+    inbound_date, outbound_date = get_packing_schedule_dates(row)
+    return (
+        inbound_date == today_key,
+        outbound_date == tomorrow_key,
+        inbound_date,
+        outbound_date,
+    )
 
 
 def yard_sort_key(yard_name: str) -> tuple:
@@ -1136,6 +1243,9 @@ def render_daily_stacking_board(
         st.info("No active packing on selected day.")
         return
 
+    today_key = day_to_date_key(selected_day)
+    tomorrow_key = day_to_date_key(selected_day + 1)
+
     yard_configs = yards_df.copy()
     if selected_blocks:
         yard_configs = yard_configs[yard_configs["block"].isin(selected_blocks)]
@@ -1186,6 +1296,16 @@ def render_daily_stacking_board(
     active_count = int(len(focus_active))
     project_count = int(focus_active["project_code"].nunique()) if "project_code" in focus_active.columns else 0
     fourth_count = int((pd.to_numeric(focus_active.get("level_index_1based", pd.Series(dtype=float)), errors="coerce") >= 4).sum())
+    today_inbound_count = 0
+    tomorrow_outbound_count = 0
+    for _, status_row in focus_active.iterrows():
+        is_today_inbound, is_tomorrow_outbound, _, _ = get_packing_schedule_status(
+            status_row,
+            today_key,
+            tomorrow_key,
+        )
+        today_inbound_count += int(is_today_inbound)
+        tomorrow_outbound_count += int(is_tomorrow_outbound)
 
     focus_parts: list[str] = []
     focus_parts.append("<div class='stack-focus'>")
@@ -1200,7 +1320,15 @@ def render_daily_stacking_board(
     focus_parts.append(f"<span class='stack-pill'>projects {project_count}</span>")
     focus_parts.append(f"<span class='stack-pill'>capacity {capacity}</span>")
     focus_parts.append(f"<span class='stack-pill'>4th {fourth_count}</span>")
+    focus_parts.append(f"<span class='stack-pill'>in today {today_inbound_count}</span>")
+    focus_parts.append(f"<span class='stack-pill'>out tomorrow {tomorrow_outbound_count}</span>")
     focus_parts.append("</div></div>")
+    focus_parts.append(
+        "<div class='stack-status-legend'>"
+        "<span class='stack-status-item'><span class='stack-status-swatch inbound'></span>오늘 입고</span>"
+        "<span class='stack-status-item'><span class='stack-status-swatch outbound'></span>내일 출고</span>"
+        "</div>"
+    )
 
     grid_style = f"grid-template-columns: 58px repeat({max(slot_count, 1)}, minmax(68px, 1fr));"
     focus_parts.append(f"<div class='stack-focus-grid' style='{grid_style}'>")
@@ -1209,9 +1337,8 @@ def render_daily_stacking_board(
         focus_parts.append(f"<div class='stack-slot-head'>{slot}</div>")
 
     for level in range(max_level, 0, -1):
-        label_class = "stack-level-head fourth-label" if level > normal_level else "stack-level-head"
         level_label = f"{level}"
-        focus_parts.append(f"<div class='{label_class}'>{level_label}</div>")
+        focus_parts.append(f"<div class='stack-level-head'>{level_label}</div>")
         for slot in range(1, slot_count + 1):
             row = occupied.get((slot, level))
             if row is None:
@@ -1228,10 +1355,26 @@ def render_daily_stacking_board(
             packing_short = packing_id.rsplit("_", 1)[-1] if "_" in packing_id else packing_id[-4:]
             main_text = html.escape(project_code)
             sub_text = html.escape(f"#{packing_short} / {height}mm")
-            title = html.escape(
-                f"yard={focus_yard}\nslot={slot}\nlevel={level}\npacking={packing_id}\nproject={project_code}\ngroup={group_id}\nheight={height}mm"
+            is_today_inbound, is_tomorrow_outbound, inbound_date, outbound_date = (
+                get_packing_schedule_status(row, today_key, tomorrow_key)
             )
-            cls = "stack-focus-cell filled fourth" if level > normal_level else "stack-focus-cell filled"
+            status_text = []
+            if is_today_inbound:
+                status_text.append("오늘 입고")
+            if is_tomorrow_outbound:
+                status_text.append("내일 출고")
+            title = html.escape(
+                f"yard={focus_yard}\nslot={slot}\nlevel={level}\npacking={packing_id}"
+                f"\nproject={project_code}\ngroup={group_id}\nheight={height}mm"
+                f"\n입고일={inbound_date or '-'}\n출고일={outbound_date or '-'}"
+                f"\n상태={', '.join(status_text) if status_text else '-'}"
+            )
+            cell_classes = ["stack-focus-cell", "filled"]
+            if is_today_inbound:
+                cell_classes.append("today-inbound")
+            if is_tomorrow_outbound:
+                cell_classes.append("tomorrow-outbound")
+            cls = " ".join(cell_classes)
             focus_parts.append(
                 f"<div class='{cls}' style='background:{color};' title='{title}'>"
                 f"<div class='stack-cell-main'>{main_text}</div>"
@@ -1278,7 +1421,7 @@ def render_daily_stacking_board(
             cells.append(f"<div class='stack-axis'>{slot}</div>")
 
         for level in range(max_level, 0, -1):
-            level_label = f"{level}" if level <= normal_level else f"{level}*"
+            level_label = f"{level}"
             cells.append(f"<div class='stack-axis'>{level_label}</div>")
             for slot in range(1, slot_count + 1):
                 row = occupied_small.get((slot, level))
@@ -1287,10 +1430,26 @@ def render_daily_stacking_board(
                     continue
                 color_key = str(row.get(color_column, row.get("project_code", "")))
                 color = get_project_color(color_key)
-                title = html.escape(
-                    f"yard={yard_name}\nslot={slot}\nlevel={level}\npacking={row.get('packing_id', '')}\nproject={row.get('project_code', '')}"
+                is_today_inbound, is_tomorrow_outbound, inbound_date, outbound_date = (
+                    get_packing_schedule_status(row, today_key, tomorrow_key)
                 )
-                cls = "stack-cell filled fourth" if level > normal_level else "stack-cell filled"
+                status_text = []
+                if is_today_inbound:
+                    status_text.append("오늘 입고")
+                if is_tomorrow_outbound:
+                    status_text.append("내일 출고")
+                title = html.escape(
+                    f"yard={yard_name}\nslot={slot}\nlevel={level}"
+                    f"\npacking={row.get('packing_id', '')}\nproject={row.get('project_code', '')}"
+                    f"\n입고일={inbound_date or '-'}\n출고일={outbound_date or '-'}"
+                    f"\n상태={', '.join(status_text) if status_text else '-'}"
+                )
+                cell_classes = ["stack-cell", "filled"]
+                if is_today_inbound:
+                    cell_classes.append("today-inbound")
+                if is_tomorrow_outbound:
+                    cell_classes.append("tomorrow-outbound")
+                cls = " ".join(cell_classes)
                 cells.append(f"<div class='{cls}' style='background:{color};' title='{title}'></div>")
         cells.append("</div>")
 
